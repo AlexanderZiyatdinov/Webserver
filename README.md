@@ -68,12 +68,14 @@ app.run()
 Use `handle_file` to receive files from the server
 
 ### **Handle_dir**
-_app = Webserver()_  
-_@app.route(path)_  
-_def func():_  
-_....return app.handle_dir(dirname)_  
+``` python
+app = Webserver()
+@app.route(path)
+def func():
+    return app.handle_dir(dirname)
 
-_app.run()_
+app.run()
+```
 
 Use `handle_dir` to create listing of choosen directory
 
