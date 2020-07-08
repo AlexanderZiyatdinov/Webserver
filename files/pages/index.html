@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+ <head>
+  <meta charset="utf-8">
+  <title>Webserver</title>
+  <link rel="stylesheet" href="http://htmlbook.ru/style/lion.css">
+ </head>
+ <body>
+   <header><h1>Webserver аналог bottle.py</a></h1></header>
+  <div class="content-gradient">
+   <div class="content-bg">
+    <div class="content-white">
+     <p>Перед вами стартовая страница. Благодаря данному
+	 Импортируйте данную библиотеку в свой python-проект. Используйте инструментарий библиотеки.</p>
+     <section class="warning">
+      <header><h1>Пример использования</h1></header>
+      <p>
+from web import Webserver <br /><br />
+
+app = Webserver()<br /><br />
+
+@app.route('/dir')<br />
+def dir():<br />
+    return app.handle_dir(os.getcwd())<br /><br />
+
+@app.route('/index')<br />
+def html():<br />
+    return app.handle_file("index.html")<br /><br />
+
+@app.route('/file')<br />
+def file():<br />
+    return app.handle_file('example.jpg',root={your root})<br /><br />
+
+@app.route('/page/(?P&ltname&gt.*)')<br />
+def page(name):<br />
+    rreturn app.get('Hello, {name}'.format(name=name))<br /><br />
+
+app.run()</p>
+     </section>
+     <section>
+     </section>  
+    </div> 
+   </div>
+  </div>
+  <footer>
+   <img src="http://htmlbook.ru/images/lion.png" alt="" width="130" height="80" class="lion">
+   <div class="footer-bg">
+    <div class="copyright">
+     <p><strong>Webserver python 3.8 2020</strong></p>
+     <p>&copy; Зиятдинов Александр</p>
+    </div>
+   </div>
+  </footer>
+ </body>
+</html>
