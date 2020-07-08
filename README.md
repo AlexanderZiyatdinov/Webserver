@@ -17,7 +17,7 @@ _app = Webserver(host='localhost', port=8080)_
 
 _@app.route('/')_  
 _def my_func():_  
-_return app.handle_dir(os.getcwd())_
+_	return app.handle_dir(os.getcwd())_
 
 _app.run()_
 
@@ -44,8 +44,8 @@ This class includes basic methods for working:
 _app = Webserver()_
   
 _@app.route(path)_  
-_def func(...):_  
-_....return app.method(...)_  
+1._def func(...):_
+  2._return app.method(...)_  
 
 _app.run()_
   
