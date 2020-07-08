@@ -106,6 +106,6 @@ You will see a well-known message: "Hello, world"
 1. You can also start the server in the main project.  
 To do this, write the code after the 
 ``` python 
-if __name__ == "__main__"
+if __name__ == "__main__:"
 ```
 2. There is a folder of files. There you can test the library
