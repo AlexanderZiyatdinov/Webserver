@@ -9,17 +9,18 @@ to the server, create your own templates, and so on.
 
 ## **Simple start**
 The following is an example of using this project as a library.
+```python
+import os  
+from web import Webserver
 
-_import os_  
-_from web import Webserver_
+app = Webserver(host='localhost', port=8080)
 
-_app = Webserver(host='localhost', port=8080)_
-
-_@app.route('/')_  
-_def my_func():_  
-_	return app.handle_dir(os.getcwd())_
-
-_app.run()_
+@app.route('/') 
+def my_func(): 
+    return app.handle_dir(os.getcwd())
+    
+app.run()
+```
 
 This example illustrates the listing of the current directory.
 
@@ -41,24 +42,28 @@ This class includes basic methods for working:
 `handle_dir` - method for listing directory
 
 ### **Route**
-_app = Webserver()_
+``` python
+app = Webserver()
   
-_@app.route(path)_  
-1._def func(...):_
-  2._return app.method(...)_  
+@app.route(path)  
+def func(...):
+    return app.method(...) 
 
-_app.run()_
+app.run()
+```
   
 
 Use `route` to create routes for your sever
 
 ### **Handle_file**
-_app = Webserver()_  
-_@app.route(path)_  
-_def func():_  
-_....return app.handle_file(file, root, content-type)_  
+``` python
+app = Webserver()  
+@app.route(path)  
+def func(): 
+    return app.handle_file(file, root, content-type)
 
-_app.run()_
+app.run()
+```
 
 Use `handle_file` to receive files from the server
 
@@ -73,28 +78,34 @@ _app.run()_
 Use `handle_dir` to create listing of choosen directory
 
 ### **HTTP methods**
-_app = Webserver()_  
-_@app.route(path)_  
-_def func():_  
-_....return app.get(body, headers, params)_  
+``` python
+app = Webserver()
+@app.route(path)
+def func():
+    return app.get(body, headers, params)
 
-_app.run()_  
+app.run()
+```
 
 Use `get` or `post` to create requests to the web server
 
 ### **Simple template**
-_app = Webserver()_  
-_@app.route(/hello/(?P\<name>.*))_  
-_def func(name):_  
-_....return app.get(f'Hello, {name}')_  
+``` python
+app = Webserver() 
+@app.route(/hello/(?P<name>.*))
+def func(name):
+    return app.get(f'Hello, {name}') 
 
-_app.run()_  
+app.run()
+```
 
 After going to address http://127.0.0.1:8080/hello/World   
 You will see a well-known message: "Hello, world"
 
 ## **Addition**
 1. You can also start the server in the main project.  
-To do this, write the code after the if \_\_name__ == "\_\_main__" construct
-
+To do this, write the code after the 
+``` python 
+if __name__ == "__main__"
+```
 2. There is a folder of files. There you can test the library
