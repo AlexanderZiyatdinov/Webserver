@@ -29,10 +29,7 @@ class Webserver:
         return self.routes
 
     def handle_file(self, filename, root=os.getcwd(), content_type='*/*'):
-        print(os.getcwd())
-        print(filename)
         path = os.path.join(root, filename)
-        print("PATH " + path)
         if not os.path.exists(path):
             return Errors.NOT_FOUND_PAGE
         response = Response.response_file(self._request, path, content_type)
@@ -41,13 +38,11 @@ class Webserver:
 
     def get(self, body, headers=None, params=None):
         body = ("\r\n" + body).encode('utf-8')
-        print("body=", body)
         response = Response(200, "OK", headers, body=body)
         return response
 
     def post(self, body, headers=None, params=None):
         body = body.encode('utf-8')
-        print("body=", body)
         headers = {('Content-Length', len(body))}
         headers = OrderedDict(headers)
         response = Response(200, "OK", headers=headers, body=body)
@@ -60,7 +55,6 @@ class Webserver:
     def handle_dir(self, dirname=os.getcwd()):
 
         path = os.path.abspath(dirname)
-        print('handle_dir: ' + path)
         if not os.path.exists(path):
             return Errors.NOT_FOUND_PAGE
         response = Response.response_dir(self._request, path)
@@ -70,10 +64,7 @@ class Webserver:
     def find_handler(self):
         for reg, handler in self.regular_routes.items():
             match = re.fullmatch(reg, self._request.url)
-            print(match, 'reg: ', reg, 'url: ', self._request.url)
-            print('handler: ', handler)
             if match:
-                print(match.groupdict())
                 if len(match.groupdict().items()) == 0:
                     self._response = handler()
                 else:
@@ -99,7 +90,6 @@ class Webserver:
                     self._response = Errors.NOT_FOUND_PAGE
                     self.find_handler()
 
-                    print(type(self._response))
                     Response.response(client, self._response)
 
                 if data_end in data:
@@ -195,12 +185,17 @@ class Response:
         button = "<li><a  href=\"{name}\" {download}>{name}</a></li>\n"
 
         if path != start_dir:
-            page_content += button.format(name='/', download=None)
+            prev_dirs = request.url.replace('\\', '/').split('/')
+            prev_path = '/'
+            for directory in prev_dirs[:-1]:
+                prev_path = os.path.join(prev_path, directory)
+
+            prev_path = prev_path.replace('\\', '/')
+
+            page_content += button.format(name=prev_path, download=None)
 
         for name in os.listdir(path):
             join_path = os.path.join(path, name)
-            print("IN DIR ", path)
-            print(os.path.isdir(join_path))
             bname = name
             if os.path.basename(path) != os.path.basename(os.getcwd()):
                 bname = os.path.join(os.path.basename(path), name)
@@ -230,7 +225,6 @@ class Response:
     def response_file(request, path, content_type, **additional_headers):
         start, end, size = None, None, None
         header_range = request.headers.get("Range")
-        print("PATH in rESPO ", path)
         with open(path, 'rb') as file:
             if header_range:
                 _, value = header_range.split('=')
@@ -246,9 +240,6 @@ class Response:
                 body = file.read(end - start)
             else:
                 body = file.read()
-            filename = os.path.basename(path)
-            print("FILE " + path)
-            print(filename)
             connection = request.headers.get('Connection')
             size = os.stat(path).st_size
             headers = {('Content-Type', f'{content_type}'),
