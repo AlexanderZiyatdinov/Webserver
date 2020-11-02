@@ -1,40 +1,149 @@
 import os
 import socket
-import threading
 import re
 import chardet
-import concurrent.futures
+
+from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from urllib.parse import urlparse
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 HTTP_METHODS = ('GET', ' POST')
 
 
 class Webserver:
-    def __init__(self, host="localhost", port=8080, hostname='hostname',
+    """The main class of this library. It is a web server.
+
+    Allows you to import a simple web server into the project for organizing
+    data storage, writing HTTP requests, and so on.
+
+    Attributes
+    ----------
+    host - Takes on the host value
+    port - Takes on the port value
+    hostname - Symbolic name assigned to the network device
+    max_workers - Max number of active connections
+    routes - A dictionary that includes all routes set by the user
+    regular_routes - A dictionary that includes all routes with regular
+                     expressions set by the user
+    request - Current request object
+    response - Current response object
+    pool - The worker thread pool of size "max_workers"
+    serv_socket - Socket of this server
+    server_address - Host and port pair
+
+    Methods
+    ----------
+    route - Decorator for functions of the user. Compiles the routes dictionary
+    make_regular_routes - Merges routes and regular_routes
+    run - Starts the web server. Starts processing new connections
+    handle - Main handler for new client connections
+    find_handler - Searches for user functions in regular_routes.
+                   Assigns the self.response value to the object
+    set_routes - Allows you to change the dictionary "self.routes"
+    get_routes - Allows you to get the dictionary "self.routes"
+    get - Executes an HTTP GET request
+    post - Executes an HTTP POST request
+    handle_file - Returns a file from a folder on the web server
+    handle_dir - Represents the selected directory as a list of directories.
+                 Allows you to download files"""
+
+    def __init__(self, host="localhost",
+                 port=8080,
+                 hostname='hostname',
                  workers=os.cpu_count() - 1):
-        self.host = host
-        self.port = port
-        self.hostname = hostname
+        self._host = host
+        self._port = port
+        self._hostname = hostname
         self.max_workers = workers
-        self.routes = {}
+        self._routes = {}
         self.regular_routes = {}
-        self._request = Request()
+        self.request = Request()
         self._response = None
+        self._pool = []
+        self.serv_socket = None
+        self._server_address = self._host, self._port
+
+    def route(self, path, method='GET'):
+        if path in self._routes:
+            raise AssertionError("Such route already exists.")
+
+        def wrapper(handler):
+            self.set_routes({path: handler})
+            return handler
+
+        return wrapper
+
+    def make_regular_routes(self):
+        for route in self._routes:
+            reg = re.compile(route)
+            self.regular_routes[reg] = self._routes[route]
+
+    def run(self):
+        """NYI"""
+        self.serv_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.serv_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.make_regular_routes()
+
+        with self.serv_socket:
+            self.serv_socket.bind(self._server_address)
+            self.serv_socket.listen(socket.SOMAXCONN)
+            print(f'Start server on {self._host}:{self._port}')
+
+            while True:
+                client, addr =  self.serv_socket.accept()
+                print(f'Got client: {addr}')
+
+                with ThreadPoolExecutor(max_workers=self.max_workers) as ex:
+                    if len(self._pool) < self.max_workers:
+                        self._pool.append(ex.submit(self.handle, client, addr))
+                    for fut in self._pool:
+                        print(self._pool)
+                        if fut.done():
+                            self._pool.remove(fut)
+                    print(self._pool)
+
+    def handle(self, client, address):
+        """Main handler"""
+        with client:
+            data_end = b'\r\n\r\n'
+
+            while True:
+                data = client.recv(1024)
+                if data:
+                    self.request = Request(data)
+                    self.request.parse_request()
+
+                    request_headers = self.request.get_headers()
+
+                    if request_headers.get('Connection') == 'keep-alive':
+                        client.setsockopt(socket.SOL_SOCKET,
+                                          socket.SO_KEEPALIVE, 1)
+
+                    self._response = Errors.NOT_FOUND_PAGE
+                    self.find_handler()
+
+                    Response.response(client, self._response)
+
+                if data_end in data:
+                    print(f'Disconnected: {address}')
+                    break
+
+    def find_handler(self):
+        for reg, handler in self.regular_routes.items():
+            match = re.fullmatch(reg, self.request.url)
+            if match:
+                if len(match.groupdict().items()) == 0:
+                    self._response = handler()
+                else:
+                    self._response = handler(match.group(1))
+                break
 
     def set_routes(self, routes):
-        self.routes = {**routes, **self.routes}
+        self._routes = {**routes, **self._routes}
 
     def get_routes(self):
-        return self.routes
-
-    def handle_file(self, filename, root=os.getcwd(), content_type='*/*'):
-        path = os.path.join(root, filename)
-        if not os.path.exists(path):
-            return Errors.NOT_FOUND_PAGE
-        response = Response.response_file(self._request, path, content_type)
-
-        return response
+        return self._routes
 
     def get(self, body, headers=None, params=None):
         body = ("\r\n" + body).encode('utf-8')
@@ -52,86 +161,26 @@ class Webserver:
         return response
         pass
 
+    def handle_file(self, filename, root=os.getcwd(), content_type='*/*'):
+        path = os.path.join(root, filename)
+        if not os.path.exists(path):
+            return Errors.NOT_FOUND_PAGE
+        response = Response.response_file(self.request, path, content_type)
+
+        return response
+
     def handle_dir(self, dirname=os.getcwd()):
 
         path = os.path.abspath(dirname)
         if not os.path.exists(path):
             return Errors.NOT_FOUND_PAGE
-        response = Response.response_dir(self._request, path)
+        response = Response.response_dir(self.request, path)
 
         return response
 
-    def find_handler(self):
-        for reg, handler in self.regular_routes.items():
-            match = re.fullmatch(reg, self._request.url)
-            if match:
-                if len(match.groupdict().items()) == 0:
-                    self._response = handler()
-                else:
-                    # TODO match.groupdict[groupname from decorator
-                    self._response = handler(match.group(1))
-                break
-
-    def handle(self, client, address):
-        with client:
-            data_end = b'\r\n\r\n'
-
-            while True:
-                data = client.recv(1024)
-                if data:
-                    self._request = Request(data)
-                    self._request.parse_request()
-                    self._request.print_headers()
-
-                    if self._request.headers.get('Connection') == 'keep-alive':
-                        client.setsockopt(socket.SOL_SOCKET,
-                                          socket.SO_KEEPALIVE, 1)
-
-                    self._response = Errors.NOT_FOUND_PAGE
-                    self.find_handler()
-
-                    Response.response(client, self._response)
-
-                if data_end in data:
-                    print(f'Disconnected: {address}')
-                    break
-
-    def run(self):
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.make_regular_routes()
-
-        with server_socket:
-            server_socket.bind((self.host, self.port))
-            server_socket.listen(socket.SOMAXCONN)
-            print(f'Start server on {self.host}:{self.port}')
-
-            while True:
-                client, address = server_socket.accept()
-                print(f'Got client: {address}')
-
-                th = (threading.
-                      Thread(target=lambda: self.handle(client, address)))
-                th.daemon = True
-                th.start()
-
-    def route(self, path, method='GET'):
-        if path in self.routes:
-            raise AssertionError("Such route already exists.")
-
-        def wrapper(handler):
-            self.set_routes({path: handler})
-            return handler
-
-        return wrapper
-
-    def make_regular_routes(self):
-        for route in self.routes:
-            reg = re.compile(route)
-            self.regular_routes[reg] = self.routes[route]
-
 
 class Request:
+    """NYI"""
     def __init__(self, data=None):
         self.data = data
         self.method = None
@@ -139,7 +188,7 @@ class Request:
         self.target = None
         self.url = None
         self.body = None
-        self.headers = {}
+        self._headers = {}
 
     def parse_request(self):
         data = str(self.data, chardet.detect(self.data)["encoding"])
@@ -147,18 +196,25 @@ class Request:
         line = lines[0]
         self.method, self.target, self.version = line.split()
         self.url = urlparse(self.target).path
+
+        if self.url.endswith('/') and self.url != '/':
+            self.url = self.url[:-1]
+
         for line in lines[1:-2]:
             header, header_value = line.split(": ")
-            self.headers[header] = header_value
+            self._headers[header] = header_value
+
+    def get_headers(self):
+        return self._headers
 
     def print_headers(self):
         print(self.method, self.target, self.version, sep=' ')
-        for header in self.headers:
-            print(header + ':', self.headers[header], sep=' ')
+        for header in self._headers:
+            print(header + ':', self._headers[header], sep=' ')
 
 
 class Response:
-
+    """NYI"""
     def __init__(self, status, message, headers=None, body=None):
         self.status = status
         self.message = message
@@ -173,7 +229,8 @@ class Response:
 
     @staticmethod
     def response_dir(request, path, **additional_headers):
-        connection = request.headers.get('Connection')
+        request_headers = request.get_headers()
+        connection = request_headers.get('Connection')
         dirs = []
         files = []
         start_dir = os.getcwd()
@@ -224,7 +281,8 @@ class Response:
     @staticmethod
     def response_file(request, path, content_type, **additional_headers):
         start, end, size = None, None, None
-        header_range = request.headers.get("Range")
+        request_headers = request.get_headers()
+        header_range = request_headers.get("Range")
         with open(path, 'rb') as file:
             if header_range:
                 _, value = header_range.split('=')
@@ -240,7 +298,7 @@ class Response:
                 body = file.read(end - start)
             else:
                 body = file.read()
-            connection = request.headers.get('Connection')
+            connection = request_headers.get('Connection')
             size = os.stat(path).st_size
             headers = {('Content-Type', f'{content_type}'),
                        ('Content-Length', len(body)),
@@ -268,6 +326,8 @@ class Response:
 
 
 class HTTPResponseError(Exception):
+    """NYI"""
+
     def __init__(self, status, message, body=None):
         self.status = status
         self.message = message
@@ -278,6 +338,7 @@ class HTTPResponseError(Exception):
 
 
 class Errors(HTTPResponseError):
+    """NYI"""
     NOT_FOUND_PAGE = HTTPResponseError(404, 'Not found',
                                        b'\r\n<h1>404</h1><p>Not found</p>')
     LENGTH_REQUIRED = HTTPResponseError(411, 'Length required',
@@ -362,6 +423,12 @@ if __name__ == "__main__":
     @app.route('/hello/(?P<name>.*)')
     def func(name):
         return app.get(f'Hello, {name}')
+
+
+    @app.route('/bigtext.txt')
+    def txt():
+        return app.handle_file('big_text.txt',
+                               root="D:\PyProjects\web\web\\")
 
 
     app.run()
