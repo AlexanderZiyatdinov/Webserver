@@ -15,6 +15,26 @@ HTTP_METHODS = ('GET', ' POST')
 # TODO обработка conn
 # TODO stop
 # TODO обработка keep-alive
+class Router:
+    def __init__(self):
+        self._routes = {}
+
+    def __str__(self):
+        return "".join(f'{r}: {f}\r\n' for (r, f) in self._routes.items())
+
+    def add_route(self, path):
+        if path in self._routes:
+            raise AssertionError("Such route already exists.")
+
+        def wrapper(handler):
+            self._routes = {**{path: handler}, **self._routes}
+            return handler
+
+        return wrapper
+
+    def get_routes(self):
+        return self._routes
+
 
 class Webserver:
     """The main class of this library. It is a web server.
@@ -57,103 +77,84 @@ class Webserver:
                  port=8080,
                  hostname='hostname',
                  workers=os.cpu_count() - 1):
-        self._host = host
-        self._port = port
-        self._hostname = hostname
-        self.max_workers = workers
-        self._routes = {}
-        self.regular_routes = {}
-        self.request = Request()
-        self._response = None
-        self._pool = []
-        self.serv_socket = None
+        self._host: str = host
+        self._port: int = port
+        self._hostname: str = hostname
+        self._max_workers: int = workers
+        self._routes: Router = Router()
+        self._request: Request = Request()
+        self._response: Response = Response()
+        self._pool: list = []
+        self._serv_socket = None
         self._server_address = self._host, self._port
 
-    def route(self, path, method='GET'):
-        if path in self._routes:
-            raise AssertionError("Such route already exists.")
-
-        def wrapper(handler):
-            self._routes = {**{path: handler}, **self._routes}
-            return handler
-
-        return wrapper
-
-    def _make_regular_routes(self):
-        for route in self._routes:
-            reg = re.compile(route)
-            self.regular_routes[reg] = self._routes[route]
+    def route(self, path):
+        return self._routes.add_route(path)
 
     def run(self):
         """NYI"""
-        self.serv_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.serv_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._make_regular_routes()
+        self._serv_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._serv_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # self._make_regular_routes()
 
-        with self.serv_socket:
-            self.serv_socket.bind(self._server_address)
-            self.serv_socket.listen(socket.SOMAXCONN)
+        print(self._routes)
+        # print(self.regular_routes)
+
+        with self._serv_socket:
+            self._serv_socket.bind(self._server_address)
+            self._serv_socket.listen(self._max_workers)
             print(f'Start server on {self._host}:{self._port}')
 
             while True:
-                client, addr = self.serv_socket.accept()
+                client, addr = self._serv_socket.accept()
                 print(f'Got client: {addr}')
 
                 # TODO
-                with ThreadPoolExecutor(max_workers=self.max_workers) as ex:
-                    if len(self._pool) < self.max_workers:
+                with ThreadPoolExecutor(max_workers=self._max_workers) as ex:
+                    if len(self._pool) < self._max_workers:
                         self._pool.append(ex.submit(self._handle_request,
                                                     client, addr))
                     for fut in self._pool:
                         if fut.done():
                             self._pool.remove(fut)
 
-    def _handle_request(self, client, address):
+    def _handle_request(self, client: socket.socket, address):
         """Main handler"""
         with client:
             data_end = b'\r\n\r\n'
-
             while True:
                 data = client.recv(1024)
                 if data:
                     self.request = Request(data)
                     self.request.parse_request()
-
                     request_headers = self.request.get_headers()
 
                     if request_headers.get('Connection') == 'keep-alive':
                         client.setsockopt(socket.SOL_SOCKET,
                                           socket.SO_KEEPALIVE, 1)
 
-                    self._response = Errors.NOT_FOUND_PAGE
-                    self._find_custom_function()
+                    self._response = (self._find_custom_function()
+                                      or Errors.NOT_FOUND_PAGE)
 
-                    Response.response(client, self._response)
+                    self._response.response(client)
+                    print(self._response)
 
                 if data_end in data:
                     print(f'Disconnected: {address}')
                     break
 
     def _find_custom_function(self):
-        for reg, handler in self.regular_routes.items():
+        routes: dict = self._routes.get_routes()
+        for reg, custom_function in routes.items():
             match = re.fullmatch(reg, self.request.url)
             if match:
-                if len(match.groupdict().items()) == 0:
-                    self._response = handler()
-                else:
-                    self._response = handler(match.group(1))
-                break
-
-    def set_routes(self, routes):
-        self._routes = {**routes, **self._routes}
-
-    def get_routes(self):
-        return self._routes
+                return custom_function() if len(
+                    match.groupdict().items()) == 0 else custom_function(
+                    match.group(1))
 
     def get(self, body, headers=None, params=None):
         body = ("\r\n" + body).encode('utf-8')
-        response = Response(200, "OK", headers, body=body)
-        return response
+        return Response(200, "OK", headers, body=body)
 
     def post(self, body, headers=None, params=None):
         body = body.encode('utf-8')
@@ -162,26 +163,19 @@ class Webserver:
         response = Response(200, "OK", headers=headers, body=body)
         if not headers['Content-Length'] or headers['Content-Length'] == 0:
             response = Errors.LENGTH_REQUIRED
-
         return response
-        pass
 
     def handle_file(self, filename, root=os.getcwd(), content_type='*/*'):
         path = os.path.join(root, filename)
         if not os.path.exists(path):
             return Errors.NOT_FOUND_PAGE
-        response = Response.response_file(self.request, path, content_type)
-
-        return response
+        return Response.response_file(self.request, path, content_type)
 
     def handle_dir(self, dirname=os.getcwd()):
-
         path = os.path.abspath(dirname)
         if not os.path.exists(path):
             return Errors.NOT_FOUND_PAGE
-        response = Response.response_dir(self.request, path)
-
-        return response
+        return Response.response_dir(self.request, path)
 
 
 class Request:
@@ -222,16 +216,19 @@ class Request:
 class Response:
     """NYI"""
 
-    def __init__(self, status, message, headers=None, body=None):
+    def __init__(self, status=None, message=None, headers=None, body=None):
         self.status = status
         self.message = message
         self.headers = OrderedDict(headers or {})
         self.body = body
 
+    def __str__(self):
+        return self._get_headers()
+
     def status_code(self):
         return f'HTTP/1.1 {self.status} {self.message}'
 
-    def get_headers(self):
+    def _get_headers(self):
         return "".join(f'{h}: {hv}\r\n' for (h, hv) in self.headers.items())
 
     @staticmethod
@@ -320,12 +317,11 @@ class Response:
                 return Response(206, "Partial Content", headers, body)
             return Response(200, "OK", headers, body)
 
-    @staticmethod
-    def response(client, response):
-        content = response.status_code().encode('utf-8')
-        if type(response) is not HTTPResponseError:
-            content += (response.get_headers().encode("utf-8"))
-        content += b'\r\n' + response.body or b''
+    def response(self, client):
+        content = self.status_code().encode('utf-8')
+        if type(self) is not HTTPResponseError:
+            content += (self._get_headers().encode("utf-8"))
+        content += b'\r\n' + self.body or b''
 
         while content:
             content_sent = client.send(content)
@@ -363,63 +359,63 @@ if __name__ == "__main__":
 
     @app.route('/files')
     def files():
-        return app.handle_dir('D:\PyProjects\web\web\\files')
+        return app.handle_dir(os.path.join(os.getcwd(), 'files'))
 
 
     @app.route('/files/documents')
     def documents():
-        return app.handle_dir('D:\PyProjects\web\web\\files\documents')
+        return app.handle_dir(os.path.join(os.getcwd(), 'files', 'documents'))
 
 
     @app.route('/files/documents/pdffile.pdf')
     def pdf():
         return app.handle_file('pdffile.pdf',
-                               'D:\PyProjects\web\web\\files\documents')
+                               os.path.join(os.getcwd(), 'files', 'documents'))
 
 
     @app.route('/files/documents/wordfile.docx')
     def word():
         return app.handle_file('wordfile.docx',
-                               'D:\PyProjects\web\web\\files\documents')
+                               os.path.join(os.getcwd(), 'files', 'documents'))
 
 
     @app.route('/files/media')
     def media():
-        return app.handle_dir('D:\PyProjects\web\web\\files\media')
+        return app.handle_dir(os.path.join(os.getcwd(), 'files', 'media'))
 
 
     @app.route('/files/media/music.mp3')
     def music():
         return app.handle_file('music.mp3',
-                               'D:\PyProjects\web\web\\files\media')
+                               os.path.join(os.getcwd(), 'files', 'media'))
 
 
     @app.route('/files/pages')
     def pages():
-        return app.handle_dir('D:\PyProjects\web\web\\files\pages')
+        return app.handle_dir(os.path.join(os.getcwd(), 'files', 'pages'))
 
 
     @app.route('/files/pages/index.html')
     def index():
         return app.handle_file('index.html',
-                               'D:\PyProjects\web\web\\files\pages')
+                               os.path.join(os.getcwd(), 'files', 'pages'))
 
 
     @app.route('/files/pictures')
     def pictures():
-        return app.handle_dir('D:\PyProjects\web\web\\files\pictures')
+        return app.handle_dir(os.path.join(os.getcwd(), 'files', 'pictures'))
 
 
     @app.route('/files/pictures/dog.jpg')
     def dog():
         return app.handle_file('dog.jpg',
-                               root='D:\PyProjects\web\web\\files\pictures')
+                               root=os.path.join(os.getcwd(), 'files', 'pictures'))
 
 
     @app.route('/files/pictures/pugs.png')
     def dog():
         return app.handle_file('pugs.png',
-                               root='D:\PyProjects\web\web\\files\pictures')
+                               root=os.path.join(os.getcwd(), 'files', 'pictures'))
 
 
     @app.route('/page/(?P<name>.*)')
@@ -435,7 +431,7 @@ if __name__ == "__main__":
     @app.route('/bigtext.txt')
     def txt():
         return app.handle_file('big_text.txt',
-                               root="D:\PyProjects\web\web\\")
+                               root=os.path.join(os.getcwd()))
 
 
     app.run()
