@@ -11,6 +11,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 HTTP_METHODS = ('GET', ' POST')
 
 
+# TODO обработка keep-alive
+# TODO обработка conn
+# TODO stop
+# TODO обработка keep-alive
+
 class Webserver:
     """The main class of this library. It is a web server.
 
@@ -37,8 +42,8 @@ class Webserver:
     route - Decorator for functions of the user. Compiles the routes dictionary
     make_regular_routes - Merges routes and regular_routes
     run - Starts the web server. Starts processing new connections
-    handle - Main handler for new client connections
-    find_handler - Searches for user functions in regular_routes.
+    handle_request - Main handler for new client connections
+    find_custom_function - Searches for user functions in regular_routes.
                    Assigns the self.response value to the object
     set_routes - Allows you to change the dictionary "self.routes"
     get_routes - Allows you to get the dictionary "self.routes"
@@ -69,12 +74,12 @@ class Webserver:
             raise AssertionError("Such route already exists.")
 
         def wrapper(handler):
-            self.set_routes({path: handler})
+            self._routes = {**{path: handler}, **self._routes}
             return handler
 
         return wrapper
 
-    def make_regular_routes(self):
+    def _make_regular_routes(self):
         for route in self._routes:
             reg = re.compile(route)
             self.regular_routes[reg] = self._routes[route]
@@ -83,7 +88,7 @@ class Webserver:
         """NYI"""
         self.serv_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.serv_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.make_regular_routes()
+        self._make_regular_routes()
 
         with self.serv_socket:
             self.serv_socket.bind(self._server_address)
@@ -91,19 +96,19 @@ class Webserver:
             print(f'Start server on {self._host}:{self._port}')
 
             while True:
-                client, addr =  self.serv_socket.accept()
+                client, addr = self.serv_socket.accept()
                 print(f'Got client: {addr}')
 
+                # TODO
                 with ThreadPoolExecutor(max_workers=self.max_workers) as ex:
                     if len(self._pool) < self.max_workers:
-                        self._pool.append(ex.submit(self.handle, client, addr))
+                        self._pool.append(ex.submit(self._handle_request,
+                                                    client, addr))
                     for fut in self._pool:
-                        print(self._pool)
                         if fut.done():
                             self._pool.remove(fut)
-                    print(self._pool)
 
-    def handle(self, client, address):
+    def _handle_request(self, client, address):
         """Main handler"""
         with client:
             data_end = b'\r\n\r\n'
@@ -121,7 +126,7 @@ class Webserver:
                                           socket.SO_KEEPALIVE, 1)
 
                     self._response = Errors.NOT_FOUND_PAGE
-                    self.find_handler()
+                    self._find_custom_function()
 
                     Response.response(client, self._response)
 
@@ -129,7 +134,7 @@ class Webserver:
                     print(f'Disconnected: {address}')
                     break
 
-    def find_handler(self):
+    def _find_custom_function(self):
         for reg, handler in self.regular_routes.items():
             match = re.fullmatch(reg, self.request.url)
             if match:
@@ -181,6 +186,7 @@ class Webserver:
 
 class Request:
     """NYI"""
+
     def __init__(self, data=None):
         self.data = data
         self.method = None
@@ -215,6 +221,7 @@ class Request:
 
 class Response:
     """NYI"""
+
     def __init__(self, status, message, headers=None, body=None):
         self.status = status
         self.message = message
