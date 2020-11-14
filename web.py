@@ -92,7 +92,7 @@ class Webserver:
         return self._routes.add_route(path)
 
     def run(self):
-        """NYI"""
+        """NIY"""
         self._serv_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._serv_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # self._make_regular_routes()
